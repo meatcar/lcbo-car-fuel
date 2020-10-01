@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+# Utility function that iterates over pages with paginationOffset, returning
+# each successive curl. Auto-detects page-size.
+fetch-paginate() {
+    BASEURL="$1"
+    CATEGORY="$2"
+    read -r count limit \
+        < <(curl -s "$BASEURL" \
+                | jq -r '.count=.resultCount | .limit=(.products | length) | .count, .limit' \
+                | tr '\n' ' ')
+
+    page=1
+    while [ $((page * limit)) -lt "$count" ]; do
+        url="${BASEURL}paginationOffset=$page"
+        echo -n "$CATEGORY -- fetching $limit at a time $((page * limit))/$count from $url ..." >&2
+        curl -s "$url"
+        page=$((page + 1))
+    done
+}
+
+mkdir -p "$DATA_DIR"
+mkdir -p "$CACHE_DIR"
+
+# Fetch Cities
+CITIES_FILE="$DATA_DIR/municipalities.json"
+if [ ! -f "$CITIES_FILE" ]; then
+    curl -s "https://api.lcbo.com/v7/municipality/" > "$CITIES_FILE"
+fi
+
+# Turns out each city fetches the same list of stores in different orders.
+# Let's just fetch Toronto.
+
+# Also we're not sure how to set limit for store pagination.
+# By default they just come 10 at a time.
+fetch-paginate "$API_BASE/v7/stores/?municipality=TORONTO&" stores \
+    | jq -c ".stores[]" >"$STORES_FILE"
+
+fetch-paginate "$API_BASE/v7/products/?numProductsPerPage=100&" products \
+    | jq -c ".products[]" | bin/normalize-products >"$PRODUCTS_FILE"
+
+rm -f "$INVENTORY_FILE"
+c=1
+numstores=$(jq -s 'length' "$STORES_FILE")
+jq --unbuffered -c '' "$STORES_FILE" | \
+    pv --name inventory -c -l -s "$numstores" | \
+    while read -r store; do
+        locationNumber=$(echo "$store" | jq -r .locationNumber)
+        echo "fetching inventory of store $locationNumber ($c/$numstores)" >&2
+        c=$((c + 1))
+        curl -s "$API_BASE/store_inventory/?locationNumber=$locationNumber" \
+            | jq -c ".products[] |= (.locationNumber = $locationNumber) | .products[]" \
+            >>"$INVENTORY_FILE"
+      done
