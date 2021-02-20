@@ -18,8 +18,8 @@ $ nix-shell
 Scrape api.lcbo.com into a sqlite database, as defined in `.env`.
 
 ```sh
-$ bin/fetch-json # Takes about 1hr
-$ bin/make-db    # Takes about 5mins
+$ bin/fetch all # Takes about 1hr
+$ bin/tune-db
 ```
 
 Optionally, explore the data with [metabase](https://metabase.com)

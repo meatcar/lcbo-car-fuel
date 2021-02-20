@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+sqlite-utils add-foreign-keys "$DB" \
+  inventory locationNumber stores locationNumber \
+  inventory product__id products itemNumber
+
+sqlite-utils index-foreign-keys "$DB"
+sqlite-utils optimize "$DB"

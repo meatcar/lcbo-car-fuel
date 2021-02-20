@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+BIN="$(dirname "$0")"
+CLEAR_EOL="\033[K"
+
+CITIES_FILE="$DATA_DIR/municipalities.json"
+
+mkdir -p "$DATA_DIR"
+
+status() {
+    echo -ne "\r$*$CLEAR_EOL"
+}
+
+# Utility function that iterates over pages with paginationOffset, returning
+# each successive curl. Auto-detects page-size.
+fetch-paginate() {
+    BASEURL="$1"
+    CATEGORY="$2"
+    echo "$CATEGORY -- base URL $BASEURL" >&2
+
+    input=$(curl -s "$BASEURL" |
+        jq -r ".count=.resultCount | .limit=(.$CATEGORY | length) | .count, .limit" |
+        tr '\n' ' ')
+    read -r count limit < <(echo "$input")
+    echo "$CATEGORY -- count: $count limit: $limit" >&2
+
+    page=1
+    while [ $((page * limit)) -lt "$count" ]; do
+        url="${BASEURL}paginationOffset=$page"
+        status "$CATEGORY -- fetching $((page * limit))/$count from $url" >&2
+        curl -s "$url"
+        page=$((page + 1))
+    done
+}
+
+fetch-cities() {
+    url="https://api.lcbo.com/v7/municipality/"
+    echo "cities -- fetching $url" >&2
+    curl -s "$url" >"$CITIES_FILE"
+}
+
+fetch-stores() {
+    # Turns out each city fetches the same list of stores in different orders.
+    # Let's just fetch Toronto.
+
+    # Also we're not sure how to set limit for store pagination.
+    # By default they just come 10 at a time.
+    sqlite-utils drop-table "$DB" stores
+    fetch-paginate "$API_BASE/v7/stores/?municipality=TORONTO&" stores |
+        jq -c ".stores[]" |
+        sqlite-utils insert "$DB" stores - \
+            --nl --pk=locationNumber --alter
+}
+
+fetch-products() {
+    sqlite-utils drop-table "$DB" products
+    fetch-paginate "$API_BASE/v7/products/?numProductsPerPage=100&" products |
+        jq -c ".products[]" |
+        "$BIN"/normalize-products |
+        sqlite-utils insert "$DB" products - \
+            --nl --pk=itemNumber --alter
+}
+
+fetch-inventory() {
+    c=1
+    numstores=$(sqlite3 "$DB" 'select count(*) from stores')
+    sqlite-utils drop-table "$DB" inventory
+    sqlite3 "$DB" 'select locationNumber from stores' |
+        pv --cursor --name inventory \
+            --line-mode --size "$numstores" \
+            --rate-limit 5 |
+        while read -r locationNumber; do
+            URL="$API_BASE/store_inventory/?locationNumber=$locationNumber"
+            c=$((c + 1))
+            status "inventory -- fetching $c/$numstores store #$locationNumber from $URL" >&2
+            curl -s "$URL" |
+                jq -c ".products[] |= (.locationNumber = $locationNumber) | .products[]" |
+                sqlite-utils insert "$DB" inventory - \
+                    --nl --pk=locationNumber --pk=product__id --alter
+        done
+}
+
+usage() {
+    echo "$0 [cities|stores|products|inventory|all]"
+    echo "    -h --help    print this message"
+}
+
+case "$1" in
+cities) fetch-cities ;;
+stores) fetch-stores ;;
+products) fetch-products ;;
+inventory) fetch-inventory ;;
+all)
+    fetch-cities
+    fetch-stores
+    fetch-products
+    fetch-inventory
+    ;;
+-h | --help)
+    usage
+    exit
+    ;;
+*)
+    usage >&2
+    exit 1
+    ;;
+esac
