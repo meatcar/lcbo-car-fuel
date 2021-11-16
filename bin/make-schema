@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -eo pipefail
+#shellcheck source=../common.bash
+source common.bash
+
+if [ -z "$CACHE_DIR" ]; then
+    CACHE_DIR="$1"
+fi
+SCHEMA_DIR="$DATA_DIR/schema"
+mkdir -p "$SCHEMA_DIR"
+
+generate() {
+    table="$1"
+    schema="$SCHEMA_DIR/$table.schema.json"
+    if [ ! -e "$schema" ]; then
+        echo "making new schema $schema" >&2
+    else
+        echo "replacing schema $schema" >&2
+    fi
+    genson -i2 -s "$schema" >"$schema"
+}
+
+for i in cities stores products; do
+    generate "$i" <"$CACHE_DIR/$i.json"
+done
+
+echo "validating inventory" >&2
+
+for i in "$CACHE_DIR"/store-inventory/*.json; do
+    echo inventory "$i" >&2
+    cat "$i"
+done | generate inventory

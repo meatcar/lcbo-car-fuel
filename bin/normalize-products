@@ -8,24 +8,35 @@ import json
 import re
 import sys
 
-'''
-Parse the productSize field into constituent count, volume, and total volume.
-The productSize field arrives in the form of "count x volume mL", with the count
-ommitted if equal to one.
-'''
+
 def set_total_volume(data):
+    '''
+    Parse the productSize field into constituent count, volume, and total volume.
+    The productSize field arrives in the form of "count x volume mL", with the count
+    ommitted if equal to one.
+    '''
     size = data['productSize'].replace(",", "")
     match = re.match(r'(?:(\d+) x )?(\d+) mL', size)
     data['productVolume'] = int(match.group(2))
     data['productCount'] = int(match.group(1) or 1)
     data['productTotalVolume'] = data['productVolume'] * data['productCount']
 
-'''
-Parse a price string, returning the interger cent value.
-'''
+
 def get_int_price(data):
+    '''Parse a price string, returning the interger cent value.'''
     s = re.sub(r'[\$\. ]', '', data)
     return int(s) if s else 0
+
+
+def normalize(data):
+    '''Normalize a single data point'''
+    set_total_volume(data)
+    data['priceInt'] = get_int_price(data['price'])
+    data['ltoRegularPriceInt'] = get_int_price(data['ltoRegularPrice'])
+    data['basicPriceInt'] = data['basicPrice'] * 100
+    data['alcoholVolume'] = \
+        data['productTotalVolume'] / 100 * data['alcoholPercentage']
+
 
 if __name__ == "__main__":
     c = 0
@@ -33,12 +44,7 @@ if __name__ == "__main__":
         c += 1
         # print("normalizing product", c, file=sys.stderr)
         data = json.loads(l)
-
-        set_total_volume(data)
-        data['priceInt'] = get_int_price(data['price'])
-        data['ltoRegularPriceInt'] = get_int_price(data['ltoRegularPrice'])
-        data['basicPriceInt'] = data['basicPrice'] * 100;
-
+        normalize(data)
         print(json.dumps(data))
 
     print("normalized", c, "products", file=sys.stderr)

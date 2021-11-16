@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -eo pipefail
+#shellcheck source=../common.bash
+source common.bash
+
+store-stores() {
+    echo "stores -- dropping table" >&2
+    sqlite-utils drop-table "$DB" stores >/dev/null 2>&1 || true
+    echo "stores -- filling table" >&2
+    jq -c '.stores[]' "$CACHE_DIR/stores.json" |
+        tee >(bin/to-parquet "$DB_PATH/stores.parquet") |
+        sqlite-utils insert "$DB" stores - \
+            --nl --pk=locationNumber --alter
+}
+
+store-products() {
+    echo "products -- dropping table" >&2
+    sqlite-utils drop-table "$DB" products >/dev/null 2>&1 || true
+    echo "products -- filling table" >&2
+    jq -c '.products[]' "$CACHE_DIR/products.json" |
+        bin/normalize-products |
+        tee >(bin/to-parquet "$DB_PATH/products.parquet") |
+        sqlite-utils insert "$DB" products - \
+            --nl --pk=itemNumber --alter
+}
+
+store-inventory() {
+    echo "products -- dropping table" >&2
+    sqlite-utils drop-table "$DB" inventory >/dev/null 2>&1 || true
+    echo "products -- filling table" >&2
+    for f in "$CACHE_DIR"/store-inventory/*; do
+        locationNumber=$(basename "$f" .json)
+        jq -c ".products[] |= (.locationNumber = $locationNumber) | .products[]" "$f" |
+            sqlite-utils insert "$DB" inventory - \
+                --nl --pk=locationNumber --pk=product__id --alter
+    done
+}
+
+TABLES='stores products inventory'
+
+usage() {
+    TABLE_OPTS=$(echo "$TABLES" | tr ' ' '|')
+    echo "$0 [$TABLE_OPTS|all]"
+    echo "    -h --help    print this message"
+}
+
+echo "store $*" >&2
+CACHE_DIR="$1"
+shift
+
+if [ -z "$DB_PATH" ]; then
+    HASH=$(date -Iseconds)
+    DB_PATH="$DATA_DIR/db/$HASH"
+fi
+echo "DB_PATH=$DB_PATH" >&2
+mkdir -p "$DB_PATH"
+
+DB="$DB_PATH/$DB"
+
+main() {
+    case "$1" in
+    stores | products | inventory)
+        "store-$1" <"$CACHE_DIR/$1.json"
+        ;;
+    all) for i in $TABLES; do main "$i"; done ;;
+    *)
+        usage >&2
+        exit 1
+        ;;
+    esac
+}
+
+main "$@"

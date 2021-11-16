@@ -27,3 +27,9 @@ Optionally, explore the data with [metabase](https://metabase.com)
 ```sh
 $ metabase
 ```
+
+## Questions
+
+- [ ] Most represented country, alcohol, etc by total volume, price adjusted, etc.
+- [ ] Wine vs Beer popularity
+- [ ] Geographic distributions
