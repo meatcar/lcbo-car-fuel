@@ -11,7 +11,7 @@
           pkgs = import inputs.nixpkgs { inherit system; };
         in
         {
-          devShell = pkgs.mkShell rec {
+          devShells.default = pkgs.mkShell rec {
             name = "lcbo-car-fuel";
             buildInputs = with pkgs; [
               gnumake
@@ -20,9 +20,9 @@
               fish
               pv
               moreutils
+              go_1_18
               sqlite
               sqlite-utils
-              metabase
               (python3.withPackages (ps: with ps; [
                 ps.pandas
                 ps.pyarrow
