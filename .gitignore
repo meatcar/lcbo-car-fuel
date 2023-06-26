@@ -5,3 +5,4 @@ metabase.*
 plugins/*
 .vscode/
 .env
+graphql/cache/

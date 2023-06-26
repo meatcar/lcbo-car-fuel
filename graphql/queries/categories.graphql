@@ -1,0 +1,14 @@
+query categories {
+  categoryList(
+    filters: {parent_category_uid: {eq: "Mg=="}}
+  ) {
+    ...Cat
+  }
+}
+
+fragment Cat on CategoryInterface {
+  uid
+  name
+  children_count
+  product_count
+}
