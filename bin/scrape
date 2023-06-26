@@ -8,87 +8,87 @@ source common.bash
 # Utility function that iterates over pages with paginationOffset, returning
 # each successive curl. Auto-detects page-size.
 fetch-paginate() {
-    BASEURL="$1"
-    CATEGORY="$2"
-    echo "$CATEGORY -- base URL $BASEURL" >&2
+	BASEURL="$1"
+	CATEGORY="$2"
+	echo "$CATEGORY -- base URL $BASEURL" >&2
 
-    input=$(curl -s "$BASEURL" |
-        jq -r ".count=.resultCount | .limit=(.$CATEGORY | length) | .count, .limit" |
-        tr '\n' ' ')
-    read -r count limit < <(echo "$input")
-    echo "$CATEGORY -- count: $count limit: $limit" >&2
+	input=$(curl -s "$BASEURL" |
+		jq -r ".count=.resultCount | .limit=(.$CATEGORY | length) | .count, .limit" |
+		tr '\n' ' ')
+	read -r count limit < <(echo "$input")
+	echo "$CATEGORY -- count: $count limit: $limit" >&2
 
-    page=1
-    while [ $((page * limit)) -lt "$count" ]; do
-        url="${BASEURL}paginationOffset=$page"
-        status "$CATEGORY -- fetching $((page * limit))/$count from $url"
-        curl -s "$url"
-        page=$((page + 1))
-    done
+	page=1
+	while [ $((page * limit)) -lt "$count" ]; do
+		url="${BASEURL}paginationOffset=$page"
+		status "$CATEGORY -- fetching $((page * limit))/$count from $url"
+		curl -s "$url"
+		page=$((page + 1))
+	done
 }
 
 fetch-cities() {
-    url="https://api.lcbo.com/v7/municipality/"
-    echo "cities -- fetching $url" >&2
-    curl -s "$url" \
-        >"$CACHE_DIR/cities.json"
+	url="$LCBOAPI_URL/municipality/"
+	echo "cities -- fetching $url" >&2
+	curl -s "$url" \
+		>"$CACHE_DIR/cities.json"
 }
 
 fetch-stores() {
-    # Turns out each city fetches the same list of stores in different orders.
-    # Let's just fetch Toronto.
+	# Turns out each city fetches the same list of stores in different orders.
+	# Let's just fetch Toronto.
 
-    # Also we're not sure how to set limit for store pagination.
-    # By default they just come 10 at a time.
-    fetch-paginate "$API_BASE/v7/stores/?municipality=TORONTO&" stores \
-        >"$CACHE_DIR/stores.json"
+	# Also we're not sure how to set limit for store pagination.
+	# By default they just come 10 at a time.
+	fetch-paginate "$LCBOAPI_URL/stores/?municipality=TORONTO&" stores \
+		>"$CACHE_DIR/stores.json"
 }
 
 fetch-products() {
-    fetch-paginate "$API_BASE/v7/products/?numProductsPerPage=100&" products \
-        >"$CACHE_DIR/products.json"
+	fetch-paginate "$LCBOAPI_URL/products/?numProductsPerPage=100&" products \
+		>"$CACHE_DIR/products.json"
 
 }
 
 fetch-inventory() {
-    c=1
-    outdir="$CACHE_DIR/store-inventory"
-    mkdir -p "$outdir"
-    numstores=$(jq --slurp '[.[].stores[]] | flatten | length' "$CACHE_DIR/stores.json")
-    jq -r '.stores[].locationNumber' "$CACHE_DIR/stores.json" |
-        while read -r locationNumber; do
-            URL="$API_BASE/store_inventory/?locationNumber=$locationNumber"
-            c=$((c + 1))
-            status "inventory -- fetching $c/$numstores store #$locationNumber from $URL"
-            curl -s "$URL" >"$outdir/$locationNumber.json"
-        done
+	c=1
+	outdir="$CACHE_DIR/store-inventory"
+	mkdir -p "$outdir"
+	numstores=$(jq --slurp '[.[].stores[]] | flatten | length' "$CACHE_DIR/stores.json")
+	jq -r '.stores[].locationNumber' "$CACHE_DIR/stores.json" |
+		while read -r locationNumber; do
+			URL="$LCBOAPI_URL/store_inventory/?locationNumber=$locationNumber"
+			c=$((c + 1))
+			status "inventory -- fetching $c/$numstores store #$locationNumber from $URL"
+			curl -s "$URL" >"$outdir/$locationNumber.json"
+		done
 }
 
 usage() {
-    TABLE_OPTS=$(echo "$TABLES" | tr ' ' '|')
-    echo "$0 [$TABLE_OPTS|all]"
-    echo "    -h --help    print this message"
+	TABLE_OPTS=$(echo "$TABLES" | tr ' ' '|')
+	echo "$0 [$TABLE_OPTS|all]"
+	echo "    -h --help    print this message"
 }
 
 main() {
-    echo "fetch $*" >&2
-    case "$1" in
-    cities | stores | products | inventory) "fetch-$1" ;;
-    all) for i in $TABLES; do main "$i"; done ;;
-    -h | --help)
-        usage
-        exit
-        ;;
-    *)
-        usage >&2
-        exit 1
-        ;;
-    esac
+	echo "fetch $*" >&2
+	case "$1" in
+	cities | stores | products | inventory) "fetch-$1" ;;
+	all) for i in $TABLES; do main "$i"; done ;;
+	-h | --help)
+		usage
+		exit
+		;;
+	*)
+		usage >&2
+		exit 1
+		;;
+	esac
 }
 
 if [ -z "$CACHE_DIR" ]; then
-    HASH=$(date -Iseconds)
-    CACHE_DIR="$DATA_DIR/json/$HASH"
+	HASH=$(date -Iseconds)
+	CACHE_DIR="$DATA_DIR/json/$HASH"
 fi
 echo "CACHE_DIR=$CACHE_DIR" >&2
 
